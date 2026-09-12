@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Local development and a full containerised run, from ONE env file.
+#
+#   docker compose up -d postgres          # just the database (host runs the API)
+#   docker compose --profile full up -d    # database + API in containers
+#
+# The Postgres credentials default to velozity/velozity so the database comes up
+# with no configuration at all. The API service reads `server/.env` — the same
+# file `npm run dev` uses — and overrides only the values that differ inside the
+# container network. There is deliberately no second env file to keep in sync.
+# ---------------------------------------------------------------------------
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: velozity-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-velozity}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-velozity}
+      POSTGRES_DB: ${POSTGRES_DB:-velozity}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-velozity} -d ${POSTGRES_DB:-velozity}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: velozity-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Secrets come from the developer's own env file and are never written into
+    # this compose file or the image.
+    env_file:
+      - ./server/.env
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      HOST: 0.0.0.0
+      # Overrides `server/.env`, which points at localhost for host-side `npm run dev`.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-velozity}:${POSTGRES_PASSWORD:-velozity}@postgres:5432/${POSTGRES_DB:-velozity}?schema=public
+      # Applies pending migrations and seeds an empty database on first boot.
+      RUN_MIGRATIONS_ON_BOOT: 'true'
+      SEED_ON_BOOT: 'true'
+    ports:
+      - '${API_PORT:-4000}:4000'
+    # `profiles` keeps this out of the default `docker compose up -d postgres` dev flow.
+    profiles: ['full']
+
+volumes:
+  postgres-data:

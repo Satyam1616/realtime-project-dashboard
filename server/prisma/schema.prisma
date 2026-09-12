@@ -1,0 +1,372 @@
+// ---------------------------------------------------------------------------
+// Velozity — agency project dashboard
+//
+// Relational model for a multi-tenant-ish internal tool: an agency has clients,
+// clients have projects, a project is owned by exactly one manager, and projects
+// contain tasks assigned to developers. Every state change a human cares about
+// is written to `ActivityEvent` as a durable row — the activity feed is read
+// from that table, never recomputed from task state.
+//
+// Index rationale is documented inline next to each `@@index` and summarised in
+// README.md ("Indexing decisions").
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7 removed `url` from the schema: the CLI reads it from
+  // ../prisma.config.ts, and the runtime client gets it via the `pg` driver
+  // adapter in src/db/client.ts. One connection string, two consumers, zero
+  // duplication in the schema.
+}
+
+// ---------------------------------------------------------------------------
+// Enums — modelled as native Postgres enums so invalid states are rejected by
+// the database itself, not only by the application layer.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  PROJECT_MANAGER
+  DEVELOPER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ActivityType {
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_MEMBER_ADDED
+  PROJECT_MEMBER_REMOVED
+  TASK_CREATED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNED
+  TASK_UNASSIGNED
+  TASK_PRIORITY_CHANGED
+  TASK_DUE_DATE_CHANGED
+  TASK_UPDATED
+  TASK_OVERDUE
+  TASK_DELETED
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_IN_REVIEW
+  TASK_OVERDUE
+  TASK_COMPLETED
+  PROJECT_MEMBER_ADDED
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  email        String  @unique
+  passwordHash String
+  name         String
+  role         Role
+  /// Deterministic avatar tint, so the UI does not have to hash names at render time.
+  avatarColor  String  @default("#6366f1")
+  jobTitle     String?
+  /// Soft-disable: preserves authored history and foreign keys that a hard delete would break.
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  managedProjects Project[]       @relation("ProjectManager")
+  memberships     ProjectMember[]
+  assignedTasks   Task[]          @relation("TaskAssignee")
+  createdTasks    Task[]          @relation("TaskCreator")
+  activityEvents  ActivityEvent[] @relation("ActivityActor")
+  notifications   Notification[]  @relation("NotificationRecipient")
+  actedOn         Notification[]  @relation("NotificationActor")
+  refreshTokens   RefreshToken[]
+  activityCursor  ActivityCursor?
+
+  /// The admin user list is filtered and grouped by role; `isActive` is in the
+  /// index so "all active developers" (the assignee picker) is served entirely
+  /// from the index without touching the heap.
+  @@index([role, isActive])
+}
+
+/// One row per issued refresh token. Storing them lets us revoke server-side —
+/// a stateless JWT alone cannot be withdrawn before it expires.
+model RefreshToken {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token. Never the raw value: a DB leak must not yield sessions.
+  tokenHash String @unique
+
+  /// Rotation family. Presenting an already-rotated token revokes the family
+  /// (stolen-cookie replay detection).
+  familyId String @db.Uuid
+
+  expiresAt DateTime
+  revokedAt DateTime?
+  /// Set when this token is rotated, so a reuse attempt can be traced forward.
+  replacedByJti String? @db.Uuid
+
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  /// "Revoke every session for this user" (password change, deactivation).
+  @@index([userId, revokedAt])
+  /// Reuse detection revokes an entire family in one statement.
+  @@index([familyId])
+  /// Lets the cleanup job scan only rows that have actually expired.
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Agency domain
+// ---------------------------------------------------------------------------
+
+model Client {
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String
+  company      String?
+  contactName  String?
+  contactEmail String?
+  isArchived   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  /// Client pickers and the admin client list both read "active clients by name".
+  @@index([isArchived, name])
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime?
+  dueDate     DateTime?
+
+  clientId String @db.Uuid
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  /// The owning project manager (or the admin who created it). This single
+  /// column is the whole basis of "a PM may only manage projects they created",
+  /// so every PM-scoped query filters on it.
+  managerId String @db.Uuid
+  manager   User   @relation("ProjectManager", fields: [managerId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks          Task[]
+  members        ProjectMember[]
+  activityEvents ActivityEvent[]
+  notifications  Notification[]
+
+  /// The hot path for every project-manager request: `WHERE managerId = $1`.
+  /// `status` is included because the project list defaults to non-archived.
+  @@index([managerId, status])
+  @@index([clientId])
+  /// Admin dashboard: upcoming deadlines across the agency.
+  @@index([dueDate])
+}
+
+/// Explicit project membership. This is what "their team" means for a project
+/// manager: the developers they have put on their projects. Modelling it as a
+/// table (rather than inferring team from task assignment) keeps team
+/// composition stable even when a developer currently holds no tasks.
+model ProjectMember {
+  projectId String  @db.Uuid
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  addedAt DateTime @default(now())
+
+  /// Composite PK doubles as the uniqueness constraint and as the index for
+  /// "who is on this project" — no separate surrogate key needed.
+  @@id([projectId, userId])
+  /// Reverse lookup: "which projects is this developer on".
+  @@index([userId])
+}
+
+model Task {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Human-facing sequential id so the UI can say "Task #12" as the spec
+  /// requires. A Postgres sequence, kept separate from the UUID primary key.
+  number Int @unique @default(autoincrement())
+
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+
+  /// Set by the scheduled sweep in src/jobs/overdue.job.ts — persisted, not
+  /// derived at render time, so it is queryable and indexable.
+  isOverdue        Boolean   @default(false)
+  overdueFlaggedAt DateTime?
+  completedAt      DateTime?
+
+  projectId String  @db.Uuid
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  assigneeId String? @db.Uuid
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  createdById String @db.Uuid
+  createdBy   User   @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activityEvents ActivityEvent[]
+  notifications  Notification[]
+
+  /// Project board: tasks of one project grouped by status column.
+  @@index([projectId, status])
+  /// A developer's dashboard is exactly this query, and it is the most
+  /// frequently executed one in the app.
+  @@index([assigneeId, status])
+  /// The overdue sweep scans `status NOT IN (DONE) AND dueDate < now()`; this
+  /// composite lets Postgres range-scan instead of reading every task.
+  @@index([status, dueDate])
+  /// Dashboard "tasks by priority" and the shareable `?priority=` filter.
+  @@index([projectId, priority])
+  /// Admin "overdue count" tile — a partial-style lookup on a low-cardinality flag.
+  @@index([isOverdue])
+}
+
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+/// An append-only audit log. Every task status change lands here with the actor
+/// and a timestamp, which is what makes the feed replayable after a client has
+/// been offline — nothing about the feed lives in process memory.
+model ActivityEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Monotonic cursor. `createdAt` is not safe to page on (two events can share
+  /// a millisecond), so catch-up and infinite scroll both use this sequence.
+  seq Int @unique @default(autoincrement())
+
+  type ActivityType
+
+  projectId String  @db.Uuid
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  taskId String? @db.Uuid
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  /// Null for events raised by the scheduler rather than a person.
+  actorId String? @db.Uuid
+  actor   User?   @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// Denormalised presentation fields. The feed has to render correctly years
+  /// later, after a task has been renamed or deleted and a user deactivated, so
+  /// the event captures what things were called *at the time*. This is
+  /// deliberate, append-only denormalisation, not a cache.
+  actorName   String
+  taskNumber  Int?
+  taskTitle   String?
+  projectName String
+
+  fromStatus TaskStatus?
+  toStatus   TaskStatus?
+
+  /// Field-level diffs for non-status edits (priority, due date, assignee).
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  /// Project-manager and project-detail feeds: newest-first within a project.
+  @@index([projectId, seq(sort: Desc)])
+  /// Global admin feed, newest-first.
+  @@index([seq(sort: Desc)])
+  /// Per-task history panel.
+  @@index([taskId, seq(sort: Desc)])
+  /// "What has this person been doing" (PM team view).
+  @@index([actorId, seq(sort: Desc)])
+}
+
+/// Per-user high-water mark of the activity feed.
+///
+/// This is what makes "show me the last 20 events I missed" a real answer rather
+/// than just "the last 20 events". The client acknowledges what it has rendered,
+/// the server stores the sequence number, and on reconnect we query for
+/// `seq > lastSeenSeq` within that user's role scope.
+model ActivityCursor {
+  userId String @id @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastSeenSeq Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+
+  recipientId String @db.Uuid
+  recipient   User   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  actorId String? @db.Uuid
+  actor   User?   @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  type  NotificationType
+  title String
+  body  String
+
+  taskId String? @db.Uuid
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Null means unread. A nullable timestamp carries strictly more information
+  /// than a boolean (we also learn *when* it was read) at the same storage cost.
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// The unread badge count: `WHERE recipientId = $1 AND readAt IS NULL`.
+  @@index([recipientId, readAt])
+  /// The dropdown list: newest-first for one recipient.
+  @@index([recipientId, createdAt(sort: Desc)])
+}

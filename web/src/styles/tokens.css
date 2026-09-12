@@ -1,0 +1,125 @@
+/* ---------------------------------------------------------------------------
+ * Design tokens.
+ *
+ * Plain CSS custom properties rather than Tailwind. The justification is in
+ * README.md: this is a dashboard with roughly a dozen repeated primitives
+ * (card, badge, table, avatar, feed row), so a utility framework would add a
+ * build step and ~3k class names to save very little. Tokens here, primitives
+ * in components.css, and every colour in the app resolves to one of these.
+ *
+ * The palette is dark-first because the app is a monitoring surface people
+ * leave open; a light theme is declared underneath so `prefers-color-scheme`
+ * is honoured rather than ignored.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, back to front. */
+  --bg: #0b0f19;
+  --surface: #121826;
+  --surface-2: #182032;
+  --surface-3: #1f2940;
+  --surface-hover: #1c2438;
+  --border: #263149;
+  --border-strong: #33405e;
+
+  /* Text. */
+  --text: #e8ecf5;
+  --text-muted: #9aa7c0;
+  --text-dim: #6c7a94;
+
+  /* Brand + semantics. */
+  --accent: #6366f1;
+  --accent-hover: #7c7ff3;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-text: #a5b4fc;
+
+  --ok: #22c55e;
+  --ok-soft: rgba(34, 197, 94, 0.14);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.14);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.14);
+
+  /* Task status — used by badges, board columns and the feed sentence. */
+  --status-todo: #94a3b8;
+  --status-progress: #38bdf8;
+  --status-review: #a78bfa;
+  --status-done: #22c55e;
+
+  /* Priority. */
+  --priority-low: #64748b;
+  --priority-medium: #38bdf8;
+  --priority-high: #f59e0b;
+  --priority-critical: #ef4444;
+
+  /* Shape and rhythm. */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.45);
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --header-height: 60px;
+  --sidebar-width: 232px;
+
+  /* One duration for everything, so nothing feels out of step. */
+  --transition: 140ms ease;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --bg: #f5f7fb;
+    --surface: #ffffff;
+    --surface-2: #f2f5fa;
+    --surface-3: #e8edf6;
+    --surface-hover: #eef2f9;
+    --border: #dde3ee;
+    --border-strong: #c6d0e2;
+
+    --text: #16203a;
+    --text-muted: #5b6884;
+    --text-dim: #8592aa;
+
+    --accent-text: #4f46e5;
+    --accent-soft: rgba(99, 102, 241, 0.1);
+
+    --status-todo: #64748b;
+    --priority-low: #94a3b8;
+
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+    --shadow-lg: 0 20px 48px rgba(16, 24, 40, 0.14);
+  }
+}
+
+/* Respect a user who has asked the OS to stop animating things. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

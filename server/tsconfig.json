@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    "outDir": "dist",
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+
+    /*
+     * Prisma 7 generates a client whose internal imports carry explicit `.ts`
+     * extensions (`from "./enums.ts"`). These two flags are what make that
+     * compile *and* emit correctly: the first accepts the specifier, the second
+     * rewrites it to `.js` in the output so the built JS resolves at runtime.
+     * Our own modules use `.js` specifiers (standard NodeNext) and pass through
+     * untouched.
+     */
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["src/**/*.ts", "prisma/**/*.ts", "test/**/*.ts", "prisma.config.ts", "vitest.config.ts"]
+}

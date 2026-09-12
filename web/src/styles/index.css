@@ -1,0 +1,6 @@
+/* Single stylesheet entry point, imported once from main.tsx.
+   Order matters: tokens define the variables everything else resolves. */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';
+@import './app.css';

@@ -1,0 +1,22 @@
+{
+  /*
+   * Production emit.
+   *
+   * `rootDir` stays at the package root and `prisma/seed.ts` is included, so the
+   * built image contains a compiled seed (`dist/prisma/seed.js`) alongside the
+   * app (`dist/src/index.js`). The alternative — shipping `tsx` and the
+   * TypeScript sources into the runtime image so the seed can be run
+   * on-the-fly — means the production container executes code that was never
+   * type-checked by the build. The seed imports from `../src/`, so it cannot be
+   * compiled with `rootDir: "src"`.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "noEmit": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "prisma/seed.ts"],
+  "exclude": ["test/**/*", "**/*.test.ts"]
+}
