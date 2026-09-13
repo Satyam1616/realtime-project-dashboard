@@ -15,17 +15,30 @@
 # Built from the repository root (`dockerContext: .`) because this is an npm
 # workspaces monorepo and the lockfile that pins every version lives at the
 # root. Same reason docker-compose.yml builds from the root.
+#
+# NOTE ON `region`: both resources below pin it, and they must pin the SAME
+# value. Render's private network is scoped to one region, so the internal
+# hostname in `connectionString` (dpg-…-a) only resolves from a service in that
+# same region. Omitting `region` does not mean "wherever the other one is" — it
+# means `oregon`, so setting it on only one resource silently splits the two
+# apart and the API fails to boot with:
+#
+#     P1001: Can't reach database server at `dpg-…-a:5432`
+#
+# Region cannot be changed after a resource is created, so fixing a mismatch
+# means deleting both and re-syncing this blueprint, not editing them in place.
 # ---------------------------------------------------------------------------
 databases:
-  - name: velozity-db
-    databaseName: velozity
-    user: velozity
+  - name: realtime-project-dashboard-db
+    databaseName: dashboard
+    user: dashboard
     plan: free
     postgresMajorVersion: "16"
+    region: singapore
 
 services:
   - type: web
-    name: velozity-api
+    name: realtime-project-dashboard-api
     runtime: docker
     plan: free
     region: singapore
@@ -47,7 +60,7 @@ services:
 
       - key: DATABASE_URL
         fromDatabase:
-          name: velozity-db
+          name: realtime-project-dashboard-db
           property: connectionString
 
       # Two DIFFERENT secrets, generated independently. The separation is the
@@ -68,7 +81,8 @@ services:
       - key: COOKIE_CROSS_SITE
         value: "true"
 
-      # Your Vercel URL, no trailing slash, e.g. https://velozity.vercel.app
+      # Your Vercel URL, no trailing slash, e.g.
+      # https://realtime-project-dashboard.vercel.app
       # Comma-separated if you also want preview deployments to work.
       - key: CORS_ORIGINS
         sync: false

@@ -15,7 +15,27 @@ if [ "${RUN_MIGRATIONS_ON_BOOT}" = "true" ]; then
   # `migrate deploy` is the non-interactive form: it applies pending migrations,
   # never generates or edits SQL, never resets, and is a no-op once the database
   # is current — so a restart loop cannot damage data.
-  npx --no-install prisma migrate deploy
+  #
+  # Retried, because on a managed host the database and the container start at
+  # the same time and the database is routinely still accepting connections when
+  # the first attempt lands. That failure is P1001 ("Can't reach database
+  # server"), which is the same error a genuinely unreachable database gives, so
+  # the distinction is only how long it persists. Bounded rather than infinite:
+  # after ~2 minutes this is a real misconfiguration — most often the database
+  # sitting in a different region from the service — and the right outcome is a
+  # loud failure, not a container that retries quietly forever.
+  attempt=1
+  max_attempts=12
+  until npx --no-install prisma migrate deploy; do
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      echo "[entrypoint] database unreachable after ${max_attempts} attempts — giving up."
+      echo "[entrypoint] if this is P1001, check that the database and this service are in the SAME region."
+      exit 1
+    fi
+    echo "[entrypoint] migrate failed (attempt ${attempt}/${max_attempts}); retrying in 10s"
+    attempt=$((attempt + 1))
+    sleep 10
+  done
 fi
 
 if [ "${SEED_ON_BOOT}" = "true" ]; then

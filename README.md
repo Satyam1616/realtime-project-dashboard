@@ -34,7 +34,8 @@ an **Admin** sees the agency, a **Project Manager** sees their own portfolio, a
 Requires **Node ≥ 20.11** and **Docker**.
 
 ```bash
-git clone <repo-url> velozity && cd velozity
+git clone https://github.com/Satyam1616/realtime-project-dashboard.git
+cd realtime-project-dashboard
 
 # 1. Secrets. Only server/.env is required, and only two values in it have no default.
 cp server/.env.example server/.env
@@ -578,7 +579,24 @@ and wires `DATABASE_URL` from the database to the service. Two values it cannot 
 First boot runs `prisma migrate deploy` and then the seed, because the blueprint sets
 `RUN_MIGRATIONS_ON_BOOT` and `SEED_ON_BOOT`. Both are safe to leave on: `migrate deploy` is a
 no-op once the schema is current, and the seed refuses to rebuild a database that already has
-users under `NODE_ENV=production` unless `SEED_FORCE=true`.
+users under `NODE_ENV=production` unless `SEED_FORCE=true`. The migration step retries for ~2
+minutes before giving up, because on a fresh blueprint the database and the container start
+together and the database is often still accepting connections when the first attempt lands.
+
+**Both resources must be in the same region, and the blueprint pins both to `singapore`.** Render's
+private network does not cross regions, so the internal hostname in `DATABASE_URL` — the
+`dpg-…-a` form — only resolves from a service in the same region as the database. An omitted
+`region` does not inherit from the other resource; it means `oregon`. Get this wrong and the API
+dies on boot with:
+
+```
+P1001: Can't reach database server at `dpg-xxxxxxxxxxxxxxxxxxxx-a:5432`
+```
+
+Region cannot be changed after a resource is created, so recovering from a mismatch means
+deleting *both* the service and the database and re-syncing the blueprint — not editing them in
+place. To deploy closer to your users, change `region` on both entries together before the first
+sync; the valid values are `oregon`, `ohio`, `virginia`, `frankfurt` and `singapore`.
 
 Note the free tier sleeps after inactivity. A sleeping API means the first request after a pause
 takes ~30 seconds and **open WebSockets are dropped** — the client reconnects and re-fetches
@@ -600,7 +618,7 @@ three settings have to agree or **login will appear to work and then silently fa
 
 ```bash
 # Vercel (web/)
-VITE_API_URL=https://velozity-api.onrender.com   # no trailing slash
+VITE_API_URL=https://realtime-project-dashboard-api.onrender.com   # no trailing slash
 
 # Render (server/) — the first two are in render.yaml already
 COOKIE_CROSS_SITE=true                       # → SameSite=None; Secure
