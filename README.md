@@ -564,30 +564,56 @@ would mean dropping the WebSocket requirement — which the brief rules out. So:
 
 | Half | Host | Why |
 |---|---|---|
-| `web/` — the SPA | **Vercel** (`web/vercel.json` is ready: Vite preset, SPA rewrite, immutable asset caching, security headers) | Static output, global CDN |
-| `server/` — API + Socket.IO | Any persistent Node host (Railway, Render, Fly.io) via `server/Dockerfile` | Needs a process that stays alive and holds sockets |
-| PostgreSQL | Managed (Neon, Supabase, Railway) | — |
+| `web/` — the SPA | **Vercel** (`web/vercel.json`: Vite preset, SPA rewrite, immutable asset caching, security headers) | Static output, global CDN |
+| `server/` — API + Socket.IO | **Render** (`render.yaml`, built from `server/Dockerfile`) | Needs a process that stays alive and holds sockets |
+| PostgreSQL | Render Postgres, declared in the same blueprint | Keeps the connection string out of anyone's hands — Render injects it |
 
-Once the API is on a different origin from the SPA, the refresh cookie becomes cross-site and
-three settings have to agree or **login will appear to work and then silently fail to refresh**:
+### The API, on Render
+
+`render.yaml` at the repository root is a blueprint: **New → Blueprint → pick this repository**,
+and Render creates the web service and the database together, generates both JWT secrets itself,
+and wires `DATABASE_URL` from the database to the service. Two values it cannot infer are marked
+`sync: false`, so it prompts for them: `CORS_ORIGINS` (your Vercel URL) and `SEED_PASSWORD`.
+
+First boot runs `prisma migrate deploy` and then the seed, because the blueprint sets
+`RUN_MIGRATIONS_ON_BOOT` and `SEED_ON_BOOT`. Both are safe to leave on: `migrate deploy` is a
+no-op once the schema is current, and the seed refuses to rebuild a database that already has
+users under `NODE_ENV=production` unless `SEED_FORCE=true`.
+
+Note the free tier sleeps after inactivity. A sleeping API means the first request after a pause
+takes ~30 seconds and **open WebSockets are dropped** — the client reconnects and re-fetches
+missed activity through the `seq` cursor, so nothing is lost, but a reviewer clicking a cold link
+should expect that first pause.
+
+### The SPA, on Vercel
+
+Import the repository, set the **root directory to `web/`**, and add one environment variable —
+`VITE_API_URL`, your Render URL with no trailing slash. Optionally add `VITE_DEMO_PASSWORD`
+matching the `SEED_PASSWORD` you gave Render, which turns on the one-click "sign in as…" buttons
+on the login page. Everything else is already in `web/vercel.json`.
+
+### The cross-site cookie triad
+
+Once the API is on a different origin from the SPA, the refresh cookie becomes third-party and
+three settings have to agree or **login will appear to work and then silently fail to refresh**
+15 minutes later, when the access token expires:
 
 ```bash
-# web (Vercel env)
-VITE_API_URL=https://your-api.example.com
+# Vercel (web/)
+VITE_API_URL=https://velozity-api.onrender.com   # no trailing slash
 
-# server
-CORS_ORIGINS=https://your-app.vercel.app   # exact origin, credentials mode requires it
-COOKIE_CROSS_SITE=true                     # → SameSite=None; Secure
-COOKIE_DOMAIN=                             # leave blank unless API and SPA share a parent domain
+# Render (server/) — the first two are in render.yaml already
+COOKIE_CROSS_SITE=true                       # → SameSite=None; Secure
+CORS_ORIGINS=https://your-app.vercel.app     # exact origin; credentials mode forbids `*`
+COOKIE_DOMAIN=                               # leave blank: the hosts share no parent domain
 ```
 
-`COOKIE_CROSS_SITE=true` switches the cookie to `SameSite=None; Secure`, which browsers only
-accept over HTTPS — so this cannot be tested over plain `http://`. Locally none of it is needed,
-because the Vite dev server proxies `/api` and `/socket.io` and the browser stays same-origin.
-
-Run migrations against the managed database before first boot (`npm run db:migrate --workspace
-server`, then `db:seed`), or let the container do it with `RUN_MIGRATIONS_ON_BOOT=true` and
-`SEED_ON_BOOT=true`.
+Each one is load-bearing. `SameSite=None` is what lets the browser attach the cookie to a
+cross-origin request at all; `Secure` is what makes `SameSite=None` acceptable, so this
+configuration cannot be exercised over plain `http://`; and the exact-origin CORS entry is
+required because credentialed requests may not be answered with a wildcard. Locally none of it
+applies — the Vite dev server proxies `/api` and `/socket.io`, so the browser stays same-origin
+and the cookie works over `http://localhost` with `SameSite=Lax`.
 
 ---
 

@@ -27,7 +27,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { env, isProduction, isTest } from './config/env.js';
-import { badRequest } from './lib/errors.js';
+import { badRequest, forbidden } from './lib/errors.js';
 import { logger } from './lib/logger.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import authPlugin from './plugins/auth.plugin.js';
@@ -87,7 +87,13 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       if (!origin) return callback(null, true);
       const normalised = origin.replace(/\/$/, '');
       if (env.CORS_ORIGINS.includes(normalised)) return callback(null, true);
-      return callback(new Error('Origin not allowed'), false);
+      // An `AppError` rather than a bare `Error`, for two reasons: a bare one
+      // reaches the client as Fastify's own `{statusCode, error, message}` shape
+      // and a 500, which breaks the single response envelope this API promises
+      // and blames the server for what is a caller mistake. It is also not
+      // logged as an unhandled fault, so a misconfigured `CORS_ORIGINS` shows up
+      // as a 403 in the access log instead of a stack trace per request.
+      return callback(forbidden(`Origin ${normalised} is not allowed.`), false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],

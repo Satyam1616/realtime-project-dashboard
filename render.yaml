@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Render blueprint — the API and its database.
+#
+# Only the API lives here. The SPA is on Vercel (see web/vercel.json), and the
+# split is forced by the architecture rather than chosen for convenience:
+# Socket.IO holds long-lived connections and keeps room membership in process
+# memory, which a request-scoped serverless runtime cannot do. So the API needs
+# a host that runs a persistent process, and this is it.
+#
+# To deploy: Render dashboard → New → Blueprint → pick this repository. Render
+# reads this file, creates both resources, and generates the two JWT secrets
+# itself. Two values cannot be inferred and are marked `sync: false`, so Render
+# prompts for them — see the comments on each.
+#
+# Built from the repository root (`dockerContext: .`) because this is an npm
+# workspaces monorepo and the lockfile that pins every version lives at the
+# root. Same reason docker-compose.yml builds from the root.
+# ---------------------------------------------------------------------------
+databases:
+  - name: velozity-db
+    databaseName: velozity
+    user: velozity
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: velozity-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+
+    # The same unauthenticated liveness route the container HEALTHCHECK uses. It
+    # deliberately does not touch the database: a health check that fails on a
+    # transient query would take a process out of rotation for a fault it could
+    # have ridden out. The connection is verified once at boot instead.
+    healthCheckPath: /health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Render injects PORT and expects the process to bind it. HOST defaults to
+      # 0.0.0.0 in config/env.ts, which is what a container needs.
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: velozity-db
+          property: connectionString
+
+      # Two DIFFERENT secrets, generated independently. The separation is the
+      # point: a refresh token signed with one key cannot be replayed as an
+      # access token verified with the other. Render generates 32 random bytes
+      # base64-encoded, which clears the 32-character minimum in config/env.ts.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # --- The cross-site cookie triad -------------------------------------
+      # The SPA is on vercel.app and the API is on onrender.com, so the refresh
+      # cookie is third-party from the browser's point of view. It is sent only
+      # if it is SameSite=None AND Secure AND the API allows the SPA's origin
+      # with credentials. Get one of the three wrong and login appears to work,
+      # then silently fails to refresh 15 minutes later.
+      - key: COOKIE_CROSS_SITE
+        value: "true"
+
+      # Your Vercel URL, no trailing slash, e.g. https://velozity.vercel.app
+      # Comma-separated if you also want preview deployments to work.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # --- First-boot database setup ---------------------------------------
+      # `migrate deploy` applies pending migrations and is a no-op once the
+      # database is current, so a restart loop cannot damage data.
+      - key: RUN_MIGRATIONS_ON_BOOT
+        value: "true"
+
+      # Safe to leave on. The seed rebuilds its fixture from scratch, so under
+      # NODE_ENV=production it refuses to run against a database that already
+      # has users unless SEED_FORCE=true. First boot populates an empty
+      # database; every later restart leaves the data alone.
+      - key: SEED_ON_BOOT
+        value: "true"
+
+      # Shared password for the seven seeded demo accounts. Prompted for rather
+      # than committed — the accounts only exist in the demo database, but a
+      # password in a public repository is a bad habit to model. Must match
+      # VITE_DEMO_PASSWORD on Vercel for the one-click sign-in buttons to work.
+      - key: SEED_PASSWORD
+        sync: false
+
+      # Every 5 minutes. The sweep is idempotent — the claim re-checks the flag
+      # inside the same transaction that writes the activity events — so a
+      # missed tick costs at most one interval of staleness and a doubled one
+      # costs nothing.
+      - key: OVERDUE_CRON
+        value: "*/5 * * * *"

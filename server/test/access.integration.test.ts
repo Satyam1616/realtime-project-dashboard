@@ -531,6 +531,74 @@ describe('input validation', () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * 7. CORS: the allowlist is enforced, and refusal uses the envelope
+ * ------------------------------------------------------------------ */
+
+describe('CORS origin allowlist', () => {
+  const ALLOWED = 'http://localhost:5173';
+  const DISALLOWED = 'https://evil.example.com';
+
+  it('allows a configured origin with credentials', async () => {
+    if (!available) return;
+    // `credentials: true` is what makes the refresh cookie work cross-site, and
+    // a browser requires the exact origin to be echoed — a wildcard is refused
+    // for credentialed requests.
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/auth/login',
+      headers: { origin: ALLOWED, 'access-control-request-method': 'POST' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBe(ALLOWED);
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('refuses an origin outside the allowlist without echoing it back', async () => {
+    if (!available) return;
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/auth/login',
+      headers: { origin: DISALLOWED, 'access-control-request-method': 'POST' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('reports a refused origin as 403 in the standard envelope, not a 500', async () => {
+    if (!available) return;
+    // Regression: the rejection used to be a bare `Error`, which @fastify/cors
+    // surfaces as a 500 in Fastify's own `{statusCode, error, message}` shape.
+    // That blamed the server for a caller mistake and broke the single envelope
+    // every other route returns — so a client's error handling would not
+    // recognise it, and a misconfigured CORS_ORIGINS logged a stack per request.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { origin: DISALLOWED, 'content-type': 'application/json' },
+      payload: { email: 'ravi@velozity.dev', password: 'Password123!' },
+    });
+
+    expect(res.statusCode).toBe(403);
+
+    const body = res.json() as { error?: { code?: string; message?: string }; requestId?: string };
+    expect(body.error?.code).toBe('FORBIDDEN');
+    expect(body.requestId).toBeTruthy();
+    expect(body).not.toHaveProperty('statusCode'); // Fastify's default shape
+
+    // The refusal names the origin — useful when the cause is a misconfigured
+    // CORS_ORIGINS — but must not leak a stack trace.
+    expect(body.error?.message).toContain(DISALLOWED);
+    expect(JSON.stringify(body)).not.toMatch(/\bat \/|\.js:\d+/);
+  });
+
+  it('allows a request with no Origin header at all', async () => {
+    if (!available) return;
+    // curl, server-to-server calls and the container health check send none.
+    // Refusing them would break the load balancer's liveness probe.
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
 describe('refresh tokens', () => {
   it('sets the refresh token as an HttpOnly cookie and never returns it in the body', async () => {
     if (!available) return;
