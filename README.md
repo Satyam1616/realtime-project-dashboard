@@ -5,7 +5,15 @@ team activity live. Three roles see three genuinely different applications over 
 an **Admin** sees the agency, a **Project Manager** sees their own portfolio, a
 **Developer** sees only the work assigned to them.
 
-> **Live demo:** _(deployed link)_ · sign in with any account in [Demo accounts](#demo-accounts).
+> **Live demo:** **https://realtime-project-dashboard-web.vercel.app** · sign in with any account
+> in [Demo accounts](#demo-accounts), or use the one-click role buttons on the login page.
+>
+> API: `https://realtime-project-dashboard-api.onrender.com` — the SPA is on Vercel and the API on
+> Render, for the reason given under [Deployment](#deployment). Both run on free tiers, so the API
+> sleeps when idle: the **first request after a pause takes ~30 seconds**. Open sockets are dropped
+> when it sleeps, and the client reconnects and back-fills what it missed through the activity
+> cursor, so nothing is lost. Browsing the API origin directly returns
+> `{"error":{"code":"NOT_FOUND",...}}` — it serves `/health` and `/api/*`, not a web page.
 
 ---
 
@@ -711,6 +719,19 @@ Honest list, roughly by how much they would matter next.
     ```bash
     grep -o 'node_modules/@rollup/rollup-[a-z0-9-]*' package-lock.json | sort -u | wc -l
     ```
+12. **One response does not use the standard envelope: a rejected CORS *preflight*.** Every route
+    and the not-found handler return `{ error: { code, message }, requestId }`, and a rejected
+    origin on a real request does too — `403 FORBIDDEN`, naming the origin. But `@fastify/cors`
+    answers a preflight `OPTIONS` before the request reaches the error handler, so that one is
+    serialised by Fastify's default formatter as
+    `{"statusCode":403,"code":"FORBIDDEN","error":"Forbidden","message":"…"}`. The status is
+    correct and no stack is exposed; a browser reads only the status and headers of a preflight
+    and never the body, so nothing downstream can observe the difference. Documented rather than
+    patched because the refusal is deliberately loud — a wrong `CORS_ORIGINS` is the likeliest
+    deployment mistake here, and a `403` naming the offending origin is how the misconfiguration
+    on the live deployment was diagnosed in seconds. The alternative, `callback(null, false)`,
+    is the more conventional CORS response but returns `200` with no `Allow-Origin` header,
+    leaving the failure visible only in the browser console.
 
 ---
 
