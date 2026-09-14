@@ -43,6 +43,17 @@ RUN npm run build --workspace server
 # what remains is exactly the production tree the lockfile pinned.
 RUN npm prune --omit=dev
 
+# npm hoists everything it can to the root `node_modules`, and only nests a
+# package under `server/node_modules` when a version conflict forces it. Whether
+# anything nests there is therefore a property of the resolved dependency graph,
+# not of this project — it changes when the lockfile is regenerated, and after
+# pruning dev dependencies the directory is usually absent entirely. The runtime
+# stage copies it unconditionally and Docker fails a COPY whose source does not
+# exist, so guarantee the path rather than letting a hoisting change break the
+# build. An empty directory costs nothing; Node just falls through it to
+# /app/node_modules when resolving.
+RUN mkdir -p server/node_modules
+
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime
 # ---------------------------------------------------------------------------
