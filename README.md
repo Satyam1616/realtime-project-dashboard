@@ -691,6 +691,26 @@ Honest list, roughly by how much they would matter next.
    range already allows it. JSON cannot carry a comment, hence this note.
 10. **No E2E browser test.** The role boundaries are covered at the API level, which is where
     they are enforced; the React tree is covered by `tsc` and by hand.
+11. **`package-lock.json` must be regenerated with no `node_modules` present.** npm records
+    platform-gated optional dependencies — the `@rollup/rollup-*` and `@esbuild/*` native
+    binaries — only for platforms it has resolved, and when an installed tree exists it builds
+    the lockfile from that tree rather than from registry metadata. Regenerating on Windows with
+    `node_modules` in place therefore produces a lockfile containing `win32` binaries *only*, and
+    `npm ci` on a Linux CI box then fails at build time with `Cannot find module
+    @rollup/rollup-linux-x64-gnu` (npm/cli#4828). The committed lockfile covers all 25 rollup and
+    26 esbuild platform variants. To regenerate it safely:
+
+    ```bash
+    rm -rf node_modules server/node_modules web/node_modules package-lock.json
+    npm install --package-lock-only     # resolves from the registry, all platforms
+    npm ci                              # then install for real
+    ```
+
+    Verify before committing — this should print 25, not 2:
+
+    ```bash
+    grep -o 'node_modules/@rollup/rollup-[a-z0-9-]*' package-lock.json | sort -u | wc -l
+    ```
 
 ---
 
