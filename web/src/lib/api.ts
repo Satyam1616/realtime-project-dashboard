@@ -22,8 +22,18 @@ import type { ApiErrorBody, CurrentUser, LoginResponse } from '../types/api';
 /**
  * Blank in development: Vite proxies `/api` to the backend so the browser stays
  * same-origin and the refresh cookie needs no `SameSite=None`.
+ *
+ * `.trim()` is load-bearing, not defensive habit. This value is typed into a
+ * hosting provider's environment-variable form, where a trailing space is
+ * invisible and survives a copy-paste; Vite then inlines it verbatim at build
+ * time. The space becomes `%20` in the authority component of every request URL,
+ * so the host resolves as `…onrender.com%20` and the whole app fails with
+ * `ERR_NAME_NOT_RESOLVED` — while the deployed bundle still *contains* the right
+ * origin, which makes it read like DNS or a CORS fault rather than a typo.
+ * Stripping a trailing slash alone does not catch it: with a trailing space the
+ * final character is not a slash. Trim first, then collapse any trailing slashes.
  */
-const BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
 
 export const apiUrl = (path: string): string => `${BASE_URL}/api${path}`;
 /** Socket.IO connects to the origin itself, not the `/api` prefix. */

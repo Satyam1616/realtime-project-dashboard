@@ -618,6 +618,26 @@ Import the repository, set the **root directory to `web/`**, and add one environ
 matching the `SEED_PASSWORD` you gave Render, which turns on the one-click "sign in as…" buttons
 on the login page. Everything else is already in `web/vercel.json`.
 
+Two things about `VITE_API_URL` that are easy to get wrong:
+
+**Vite inlines it at build time, so changing it requires a redeploy.** Saving the variable does
+nothing on its own — the old value is already compiled into the JavaScript. Redeploy after any
+edit.
+
+**Whitespace is invisible in the form and fatal.** A trailing space pasted into the value is
+inlined verbatim, becomes `%20` in the authority component of every request URL, and the browser
+then fails to resolve `…onrender.com%20` — every call dies with `ERR_NAME_NOT_RESOLVED` and the
+login page shows "Could not reach the server." It looks like DNS, a sleeping API or a CORS fault,
+because the bundle still visibly contains the correct origin. `src/lib/api.ts` now trims the value
+for exactly this reason, so a stray space is survivable, but it is worth not pasting one. To check
+what a deployed bundle actually holds:
+
+```bash
+WEB=https://your-app.vercel.app
+B=$(curl -s "$WEB/" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)
+curl -s "$WEB$B" | grep -o '"https://[^"]*onrender\.com[^"]*"' | cat -A   # trailing $ marks the end
+```
+
 ### The cross-site cookie triad
 
 Once the API is on a different origin from the SPA, the refresh cookie becomes third-party and
