@@ -14,6 +14,7 @@ import { useAuth } from '../providers/AuthProvider';
 import type { Role } from '../types/api';
 import { ROLE_LABEL } from '../lib/labels';
 import { InlineError } from '../components/ui/Feedback';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 /**
  * Seeded accounts, listed so a reviewer can move between roles quickly. Only
@@ -108,6 +109,7 @@ export const LoginPage = (): React.JSX.Element => {
             <h1 style={{ fontSize: 19 }}>Velozity</h1>
             <div className="small muted">Client project dashboard</div>
           </div>
+          <ThemeToggle />
         </div>
 
         {endedReason === 'expired' ? (

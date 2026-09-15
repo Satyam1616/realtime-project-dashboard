@@ -5,7 +5,12 @@
  * reusable primitives.
  * ------------------------------------------------------------------------- */
 
-/* --- app shell ----------------------------------------------------------- */
+/* --- app shell ----------------------------------------------------------- *
+ * The brand block and the sidebar together form the navigation *rail*, which
+ * uses the fixed `--rail-*` palette and therefore stays dark in both themes —
+ * the pattern the reference designs use, where a dark rail anchors the brand
+ * while the content canvas switches. The header belongs to the canvas, not the
+ * rail, so it follows the theme.                                            */
 
 .shell {
   display: grid;
@@ -21,17 +26,20 @@
   grid-area: brand;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: 0 var(--space-4);
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--rail-bg);
+  color: var(--rail-text);
+  /* No bottom border: the brand block and the sidebar below it read as one
+     continuous panel, which is what stops the rail looking like two stacked
+     boxes. */
+  border-right: 1px solid var(--rail-border);
 }
 
 .brand-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
   display: grid;
@@ -39,12 +47,14 @@
   font-weight: 750;
   font-size: 14px;
   flex: none;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
 .brand-name {
   font-weight: 680;
   letter-spacing: -0.02em;
   font-size: 15px;
+  color: var(--rail-text);
 }
 
 .shell-header {
@@ -60,13 +70,19 @@
 
 .shell-sidebar {
   grid-area: sidebar;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
-  padding: var(--space-4) var(--space-3);
+  background: var(--rail-bg);
+  border-right: 1px solid var(--rail-border);
+  padding: var(--space-4) var(--space-3) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 3px;
   overflow-y: auto;
+}
+
+/* The rail paints its own scrollbar: the themed one is invisible against it
+   in light mode. */
+.shell-sidebar {
+  scrollbar-color: var(--rail-border) transparent;
 }
 
 .shell-main {
@@ -94,56 +110,76 @@
 .page-subtitle {
   color: var(--text-muted);
   font-size: 13px;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 /* --- navigation ---------------------------------------------------------- */
 
 .nav-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 8px 11px;
+  padding: 9px 11px;
   border-radius: var(--radius);
-  color: var(--text-muted);
+  color: var(--rail-text-muted);
   font-size: 13px;
   font-weight: 550;
   transition: background var(--transition), color var(--transition);
 }
 
 .nav-link:hover {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: var(--rail-hover);
+  color: var(--rail-text);
 }
 
 .nav-link.active {
-  background: var(--accent-soft);
-  color: var(--accent-text);
+  background: var(--rail-active-bg);
+  color: var(--rail-active-text);
+  font-weight: 600;
+}
+
+/* A short marker on the active item. The colour fill alone is easy to miss at
+   a glance down a list of eight; an edge is not. */
+.nav-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: var(--rail-active-marker);
 }
 
 .nav-icon {
-  width: 16px;
+  width: 17px;
   text-align: center;
   font-size: 13px;
   flex: none;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .nav-section {
-  margin: var(--space-4) 0 var(--space-1);
+  margin: var(--space-5) 0 var(--space-1);
   padding: 0 11px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--rail-text-dim);
 }
 
 .nav-count {
   margin-left: auto;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
+  color: var(--rail-text-dim);
+}
+
+.nav-link.active .nav-count {
+  color: var(--rail-active-text);
 }
 
 /* --- connection indicator ------------------------------------------------ */
@@ -780,6 +816,12 @@ tr.just-changed > td {
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-1);
+}
+
+/* Pushes the theme control to the right of the brand row, so it sits in the
+   card without needing a row of its own. */
+.login-brand .theme-toggle {
+  margin-left: auto;
 }
 
 .demo-accounts {

@@ -10,6 +10,33 @@
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Velozity · Agency Dashboard</title>
+    <!--
+      Theme, applied before first paint.
+
+      This has to be a blocking inline script rather than something React does
+      on mount: the stylesheet defaults to dark, so a stored *light* preference
+      applied after hydration would show a dark frame first and then snap to
+      light. One assignment here, ahead of the body, and the document is
+      already correct when it is first painted.
+
+      `system` is stored as the absence of the attribute, so the stylesheet's
+      `prefers-color-scheme` block keeps working and the OS stays in charge.
+      Wrapped in try/catch because reading localStorage throws outright in a
+      private window with site data blocked, and a theme preference is not
+      worth a blank page.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('velozity-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (error) {
+          /* No storage access — fall through to the OS preference. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

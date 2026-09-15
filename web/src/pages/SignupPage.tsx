@@ -16,6 +16,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 import { InlineError } from '../components/ui/Feedback';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 /** Kept in step with `passwordSchema`, so the rule shows before the round trip. */
 const PASSWORD_RULE = 'At least 10 characters, with an uppercase letter, a lowercase letter and a digit.';
@@ -85,6 +86,7 @@ export const SignupPage = (): React.JSX.Element => {
             <h1 style={{ fontSize: 19 }}>Create an account</h1>
             <div className="small muted">Join the Velozity dashboard</div>
           </div>
+          <ThemeToggle />
         </div>
 
         {error ? <InlineError message={error} /> : null}

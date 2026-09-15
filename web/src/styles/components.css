@@ -146,9 +146,11 @@
   cursor: pointer;
 }
 
-/* The browser's own date picker glyph is invisible on a dark field. */
+/* The browser's own date-picker glyph ships black, so it disappears on a dark
+   field — and inverting it unconditionally makes it disappear on a white one
+   instead. The token carries the right answer per theme. */
 .input[type='date']::-webkit-calendar-picker-indicator {
-  filter: invert(0.6);
+  filter: var(--picker-invert);
   cursor: pointer;
 }
 
@@ -173,13 +175,18 @@
   cursor: pointer;
 }
 
-/* --- cards --------------------------------------------------------------- */
+/* --- cards --------------------------------------------------------------- *
+ * A card is a white (or dark-surface) panel lifted off the canvas. The lift is
+ * a hairline border plus a soft shadow rather than a heavy one: on a light
+ * canvas a border alone reads as flat, and a strong shadow reads as a dialog.
+ * Both tokens resolve per theme.                                            */
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-tight {
@@ -200,18 +207,21 @@
 }
 
 .card-title {
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 680;
+  letter-spacing: 0.055em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
-/* --- stat tiles ---------------------------------------------------------- */
+/* --- stat tiles ---------------------------------------------------------- *
+ * Label above, figure below, optional hint under that. The figure is the point
+ * of the tile, so it carries the size and the tabular figures; the label is
+ * deliberately quiet.                                                       */
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--space-4);
 }
 
@@ -219,24 +229,25 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) var(--space-5) calc(var(--space-4) + 2px);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  box-shadow: var(--shadow-sm);
 }
 
 .stat-label {
   font-size: 12px;
   color: var(--text-muted);
-  font-weight: 550;
+  font-weight: 560;
 }
 
 .stat-value {
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 680;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
 .stat-hint {
@@ -498,19 +509,61 @@
 .alert-error {
   background: var(--danger-soft);
   border-color: color-mix(in srgb, var(--danger) 35%, transparent);
-  color: #fca5a5;
+  color: var(--danger-text);
 }
 
 .alert-info {
   background: var(--info-soft);
   border-color: color-mix(in srgb, var(--info) 30%, transparent);
-  color: var(--info);
+  color: var(--info-text);
 }
 
 .alert-warn {
   background: var(--warn-soft);
   border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-  color: var(--warn);
+  color: var(--warn-text);
+}
+
+/* --- theme toggle -------------------------------------------------------- *
+ * A three-way segmented control: light / dark / match-system. Built on the
+ * same visual language as `.segmented` but sized for glyphs rather than words,
+ * so it sits in the header without crowding it.                             */
+
+.theme-toggle {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.theme-toggle-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.theme-toggle-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.theme-toggle-btn[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-sm);
 }
 
 /* --- tabs / segmented controls ------------------------------------------- */
@@ -550,7 +603,7 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 7, 14, 0.66);
+  background: var(--scrim);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: flex-start;

@@ -16,6 +16,7 @@ import type { Role } from '../types/api';
 import { Avatar } from './ui/Avatar';
 import { Popover } from './ui/Popover';
 import { NotificationBell } from './NotificationBell';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavItem {
   to: string;
@@ -66,6 +67,7 @@ export const AppShell = (): React.JSX.Element => {
         </div>
 
         <div className="row gap-3">
+          <ThemeToggle />
           <NotificationBell />
 
           <Popover
