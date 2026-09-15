@@ -32,3 +32,27 @@ export const changePasswordSchema = z.object({
 export const emailSchema = z.string().trim().toLowerCase().min(3).max(255).email('Must be a valid email address.');
 
 export const nameSchema = text(120);
+
+/**
+ * Self-service registration.
+ *
+ * Note what is deliberately **absent**: `role`. A caller does not get to say
+ * what they are. Every account created through this route is a `DEVELOPER`,
+ * decided server-side in `auth.service.ts`; promotion is an admin action through
+ * `PATCH /api/users/:id`.
+ *
+ * This is not a detail. `createUserSchema` (the admin path) *does* take a role,
+ * and reusing it here would let anyone on the internet mint themselves an admin
+ * account — the exact privilege escalation the rest of this codebase exists to
+ * prevent. Zod strips unknown keys, so a `role` smuggled into the body is
+ * discarded before the service ever sees it; `test/access.integration.test.ts`
+ * asserts that.
+ */
+export const registerSchema = z.object({
+  email: emailSchema,
+  name: nameSchema,
+  password: passwordSchema,
+  jobTitle: text(80).optional(),
+});
+
+export type RegisterInput = z.infer<typeof registerSchema>;

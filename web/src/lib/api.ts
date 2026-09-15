@@ -240,7 +240,32 @@ export const api = {
  * Auth calls
  * ------------------------------------------------------------------ */
 
+export interface RegisterInput {
+  email: string;
+  name: string;
+  password: string;
+  jobTitle?: string;
+}
+
 export const authApi = {
+  /**
+   * Create an account and sign in with it.
+   *
+   * There is no `role` field, and adding one would achieve nothing: the server
+   * does not read a role from this body. Every self-registered account is a
+   * developer until an admin promotes it.
+   */
+  register: async (input: RegisterInput): Promise<LoginResponse> => {
+    const data = await request<LoginResponse>('/auth/register', {
+      method: 'POST',
+      body: input,
+      // A 409 here means "that email is taken", not "expired session".
+      skipAuthRetry: true,
+    });
+    accessToken = data.accessToken;
+    return data;
+  },
+
   login: async (email: string, password: string): Promise<LoginResponse> => {
     const data = await request<LoginResponse>('/auth/login', {
       method: 'POST',

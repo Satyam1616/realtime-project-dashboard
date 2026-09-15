@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { authApi, bootstrapSession, onSessionLost, refreshSession } from '../lib/api';
+import { authApi, bootstrapSession, onSessionLost, refreshSession, type RegisterInput } from '../lib/api';
 import type { CurrentUser, Role } from '../types/api';
 
 type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
@@ -27,6 +27,7 @@ interface AuthContextValue {
   /** Set when a session ended on its own, so the login page can explain why. */
   endedReason: 'expired' | 'revoked' | null;
   login: (email: string, password: string) => Promise<CurrentUser>;
+  register: (input: RegisterInput) => Promise<CurrentUser>;
   logout: () => Promise<void>;
   is: (...roles: Role[]) => boolean;
 }
@@ -132,6 +133,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }): React.JSX.E
     [scheduleRefresh],
   );
 
+  const register = useCallback(
+    async (input: RegisterInput): Promise<CurrentUser> => {
+      const result = await authApi.register(input);
+      setUser(result.user);
+      setStatus('authenticated');
+      setEndedReason(null);
+      scheduleRefresh(result.expiresIn);
+      return result.user;
+    },
+    [scheduleRefresh],
+  );
+
   const logout = useCallback(async (): Promise<void> => {
     clearTimer();
     try {
@@ -146,8 +159,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }): React.JSX.E
   const is = useCallback((...roles: Role[]): boolean => (user ? roles.includes(user.role) : false), [user]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, endedReason, login, logout, is }),
-    [user, status, endedReason, login, logout, is],
+    () => ({ user, status, endedReason, login, register, logout, is }),
+    [user, status, endedReason, login, register, logout, is],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -17,11 +17,13 @@
  */
 import { prisma, Role, type User } from '../../db/client.js';
 import { burnPasswordComparison, hashPassword, verifyPassword } from '../../lib/password.js';
+import { pickAvatarColor } from '../../lib/avatar.js';
 import { hashToken, signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/tokens.js';
-import { ErrorCode, invalidCredentials, unauthenticated } from '../../lib/errors.js';
+import { ErrorCode, conflict, invalidCredentials, unauthenticated } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { getIO } from '../../realtime/socket.server.js';
 import { revokeUserSockets } from '../../realtime/fanout.js';
+import type { RegisterInput } from './auth.schemas.js';
 
 export interface SessionMeta {
   userAgent?: string | undefined;
@@ -87,6 +89,60 @@ const issueSession = async (
     refreshToken: refresh.token,
     expiresIn: '15m',
   };
+};
+
+/* ------------------------------------------------------------------ *
+ * Registration
+ * ------------------------------------------------------------------ */
+
+/**
+ * Self-service sign-up.
+ *
+ * **The role is a constant here, not a parameter.** `registerSchema` does not
+ * accept a role and this function does not take one — the only way to become
+ * anything other than a developer is for an admin to promote you through
+ * `PATCH /api/users/:id`, which is itself guarded, refuses to remove the last
+ * admin, and revokes the promoted user's sessions so the new role is picked up
+ * from the database rather than from a stale token.
+ *
+ * Writing `Role.DEVELOPER` inline rather than defaulting it in the schema is
+ * deliberate: a default can be overridden by a caller who supplies the field,
+ * a literal cannot.
+ *
+ * A successful registration issues a session immediately, so the new account is
+ * signed in rather than bounced back to the login form to retype what it just
+ * typed.
+ */
+export const register = async (input: RegisterInput, meta: SessionMeta): Promise<AuthResult> => {
+  const existing = await prisma.user.findUnique({
+    where: { email: input.email },
+    select: { id: true },
+  });
+
+  // This does leak that an address is registered. The alternative — accepting
+  // the request and saying nothing — leaves someone who genuinely forgot they
+  // had an account with no way to find out, and the same fact is already
+  // obtainable from the login form. Rate limiting on the route is what keeps it
+  // from being enumerable at scale.
+  if (existing) {
+    throw conflict('An account with that email address already exists.');
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      email: input.email,
+      name: input.name,
+      passwordHash: await hashPassword(input.password),
+      role: Role.DEVELOPER,
+      jobTitle: input.jobTitle ?? null,
+      avatarColor: pickAvatarColor(input.email),
+    },
+    select: { id: true, email: true, name: true, role: true, avatarColor: true, jobTitle: true },
+  });
+
+  logger.info({ userId: user.id, role: user.role }, 'account self-registered');
+
+  return issueSession(user, meta);
 };
 
 /* ------------------------------------------------------------------ *

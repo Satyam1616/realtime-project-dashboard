@@ -10,13 +10,46 @@ import type { FastifyPluginAsync } from 'fastify';
 import { parseBody } from '../../lib/validate.js';
 import { requirePrincipal } from '../../plugins/auth.plugin.js';
 import { unauthenticated } from '../../lib/errors.js';
-import { changePasswordSchema, loginSchema } from './auth.schemas.js';
+import { changePasswordSchema, loginSchema, registerSchema } from './auth.schemas.js';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './auth.cookies.js';
-import { changePassword, login, logout, refresh, toPublicUser } from './auth.service.js';
+import { changePassword, login, logout, refresh, register, toPublicUser } from './auth.service.js';
 import { prisma } from '../../db/client.js';
 import { notFound } from '../../lib/errors.js';
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * Self-service registration.
+   *
+   * The tightest limit in the API: this is the only unauthenticated route that
+   * *creates* a row, so an unbounded one is a way to fill the database from the
+   * open internet. Five per hour per IP is generous for a person and useless for
+   * a script.
+   *
+   * Every account created here is a developer — see `register()`. The response
+   * is 201 with a session already established, and the refresh cookie set, so
+   * the client is signed in without a second round trip.
+   */
+  app.post(
+    '/register',
+    { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } },
+    async (request, reply) => {
+      const input = parseBody(registerSchema, request.body);
+
+      const result = await register(input, {
+        userAgent: request.headers['user-agent'],
+        ip: request.ip,
+      });
+
+      setRefreshCookie(reply, result.refreshToken);
+
+      return reply.status(201).send({
+        user: result.user,
+        accessToken: result.accessToken,
+        expiresIn: result.expiresIn,
+      });
+    },
+  );
+
   /**
    * Brute-force protection. Tighter than the global limit because this is the
    * one endpoint where guessing pays off.

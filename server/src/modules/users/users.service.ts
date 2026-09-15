@@ -25,6 +25,7 @@
 import { prisma, Prisma, Role } from '../../db/client.js';
 import { canManageUsers, type Principal } from '../../access/rbac.js';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
+import { pickAvatarColor } from '../../lib/avatar.js';
 import { hashPassword } from '../../lib/password.js';
 import { revokeAllSessions } from '../auth/auth.service.js';
 import type { AssignableQuery, CreateUserInput, ListUsersQuery, UpdateUserInput } from './users.schemas.js';
@@ -205,15 +206,6 @@ export const getUser = async (principal: Principal, id: string): Promise<AdminUs
 /* ------------------------------------------------------------------ *
  * Writes
  * ------------------------------------------------------------------ */
-
-/** A palette that stays legible against both the light and dark surfaces. */
-const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-
-const pickAvatarColor = (seed: string): string => {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length]!;
-};
 
 export const createUser = async (principal: Principal, input: CreateUserInput): Promise<AdminUserDto> => {
   assertAdmin(principal);

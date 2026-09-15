@@ -492,6 +492,112 @@ describe('notifications', () => {
  * 7. Input validation and the refresh-token contract
  * ------------------------------------------------------------------ */
 
+describe('self-service registration', () => {
+  /** Unique per run, so a re-run does not collide on the email unique index. */
+  const fresh = (): string => `signup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
+  const GOOD_PASSWORD = 'Registr4tionTest!';
+
+  const registered: string[] = [];
+
+  const signUp = async (payload: Record<string, unknown>): Promise<LightMyRequestResponse> =>
+    app.inject({ method: 'POST', url: '/api/auth/register', payload });
+
+  afterAll(async () => {
+    // Keep the fixture's counts stable for every other suite and for the next run.
+    if (registered.length > 0) {
+      await prisma.user.deleteMany({ where: { email: { in: registered } } });
+    }
+  });
+
+  it('creates an account and signs it in', async () => {
+    if (!available) return;
+
+    const email = fresh();
+    const res = await signUp({ email, name: 'Test Person', password: GOOD_PASSWORD });
+
+    expect(res.statusCode).toBe(201);
+    registered.push(email);
+
+    const body = res.json() as { user: { role: string; email: string }; accessToken: string };
+    expect(body.user.email).toBe(email);
+    expect(body.accessToken).toBeTruthy();
+
+    // The refresh cookie must be set, HttpOnly, and scoped to the auth routes —
+    // the same contract the login route is held to.
+    const cookie = res.headers['set-cookie'];
+    const raw = Array.isArray(cookie) ? cookie.join(';') : String(cookie ?? '');
+    expect(raw).toContain('HttpOnly');
+    expect(raw).toContain('Path=/api/auth');
+  });
+
+  /**
+   * The point of the whole route.
+   *
+   * If this ever fails, anyone on the internet can mint themselves an admin, and
+   * every scope rule in rbac.ts becomes decorative.
+   */
+  it('ignores a role supplied by the caller and always creates a DEVELOPER', async () => {
+    if (!available) return;
+
+    const email = fresh();
+    const res = await signUp({
+      email,
+      name: 'Escalation Attempt',
+      password: GOOD_PASSWORD,
+      role: 'ADMIN',
+    });
+
+    expect(res.statusCode).toBe(201);
+    registered.push(email);
+
+    expect((res.json() as { user: { role: string } }).user.role).toBe('DEVELOPER');
+
+    // Assert against the row, not just the response: a handler could return a
+    // sanitised DTO while having written something else.
+    const stored = await prisma.user.findUnique({ where: { email }, select: { role: true } });
+    expect(stored?.role).toBe('DEVELOPER');
+  });
+
+  it('refuses a duplicate email with 409 rather than overwriting the account', async () => {
+    if (!available) return;
+
+    const res = await signUp({
+      email: PEOPLE.admin,
+      name: 'Impostor',
+      password: GOOD_PASSWORD,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('CONFLICT');
+
+    // The seeded admin is untouched.
+    const stored = await prisma.user.findUnique({
+      where: { email: PEOPLE.admin },
+      select: { role: true, name: true },
+    });
+    expect(stored?.role).toBe('ADMIN');
+    expect(stored?.name).toBe('Priya Sharma');
+  });
+
+  it('enforces the password policy with field-level detail', async () => {
+    if (!available) return;
+
+    const res = await signUp({ email: fresh(), name: 'Weak Password', password: 'short' });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: { code: string; details?: Array<{ path: string }> } };
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.details?.some((detail) => detail.path === 'password')).toBe(true);
+  });
+
+  it('rejects a malformed email without creating anything', async () => {
+    if (!available) return;
+
+    const res = await signUp({ email: 'not-an-email', name: 'Bad Email', password: GOOD_PASSWORD });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('input validation', () => {
   it('rejects an unknown enum value rather than ignoring the filter', async () => {
     if (!available) return;

@@ -8,7 +8,7 @@
  * `POST /auth/refresh` without the password.
  */
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 import type { Role } from '../types/api';
@@ -17,17 +17,48 @@ import { InlineError } from '../components/ui/Feedback';
 
 /**
  * Seeded accounts, listed so a reviewer can move between roles quickly. Only
- * the addresses are in source — the shared password comes from the
- * environment, and without it these are just labels.
+ * the addresses are in source — see `DEMO_PASSWORD` below for the password.
  */
 const DEMO_ACCOUNTS: Array<{ email: string; name: string; role: Role; note: string }> = [
   { email: 'priya@velozity.dev', name: 'Priya Sharma', role: 'ADMIN', note: 'sees everything' },
-  { email: 'arjun@velozity.dev', name: 'Arjun Mehta', role: 'PROJECT_MANAGER', note: '3 projects' },
-  { email: 'neha@velozity.dev', name: 'Neha Kulkarni', role: 'PROJECT_MANAGER', note: '1 project' },
+  { email: 'arjun@velozity.dev', name: 'Arjun Mehta', role: 'PROJECT_MANAGER', note: '2 projects' },
+  { email: 'neha@velozity.dev', name: 'Neha Kulkarni', role: 'PROJECT_MANAGER', note: '2 projects' },
   { email: 'ravi@velozity.dev', name: 'Ravi Verma', role: 'DEVELOPER', note: 'assigned tasks only' },
 ];
 
-const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD ?? '';
+/**
+ * The seeded fixture password, used by the one-click role buttons.
+ *
+ * Read from the environment so a deployment seeded with a different
+ * `SEED_PASSWORD` still gets working buttons — but **validated first**. Vite
+ * inlines this value at build time from a hosting provider's environment form,
+ * which is trivially easy to paste the wrong thing into; an unusable value has
+ * to degrade to "fill the email in and let them type" rather than submit
+ * rubbish and produce a 400 that reads like the app is broken.
+ *
+ * The fallback is the same literal `server/src/config/env.ts` defaults
+ * `SEED_PASSWORD` to. That is fixture data — published in the README, printed by
+ * the seed script, and only ever attached to demo accounts in a throwaway
+ * database. It is not a secret, and treating it as one would mean the demo
+ * cannot work. The actual secrets — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`,
+ * `DATABASE_URL` — have no default anywhere and the server refuses to boot
+ * without them.
+ */
+const FIXTURE_PASSWORD = 'Password123!';
+
+const readDemoPassword = (): string => {
+  const raw: unknown = import.meta.env.VITE_DEMO_PASSWORD;
+  if (typeof raw !== 'string') return FIXTURE_PASSWORD;
+
+  const trimmed = raw.trim();
+  // A plausible password is one line, unspaced, and inside bcrypt's 72-byte
+  // effective input. Anything else is a mis-paste, and the fixture value is a
+  // better guess than what was pasted.
+  const plausible = trimmed.length > 0 && trimmed.length <= 72 && !/\s/.test(trimmed);
+  return plausible ? trimmed : FIXTURE_PASSWORD;
+};
+
+const DEMO_PASSWORD = readDemoPassword();
 
 export const LoginPage = (): React.JSX.Element => {
   const { login, status, endedReason } = useAuth();
@@ -123,9 +154,13 @@ export const LoginPage = (): React.JSX.Element => {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
 
+        <p className="small muted" style={{ textAlign: 'center', margin: 0 }}>
+          New here? <Link to="/signup">Create an account</Link>
+        </p>
+
         <div className="demo-accounts">
           <div className="tiny dim" style={{ padding: '0 7px 4px' }}>
-            {DEMO_PASSWORD ? 'Demo accounts — click to sign in' : 'Seeded demo accounts'}
+            Demo accounts — click to sign in
           </div>
           {DEMO_ACCOUNTS.map((account) => (
             <button
@@ -136,7 +171,7 @@ export const LoginPage = (): React.JSX.Element => {
               onClick={() => {
                 setEmail(account.email);
                 setPassword(DEMO_PASSWORD);
-                if (DEMO_PASSWORD) void attempt(account.email, DEMO_PASSWORD);
+                void attempt(account.email, DEMO_PASSWORD);
               }}
             >
               <span className="truncate">
