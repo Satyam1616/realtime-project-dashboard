@@ -101,9 +101,14 @@ jobs:
       # The suite skips its integration tier when Postgres is unreachable. This
       # step turns that silent skip into a hard failure: if the fixture is not
       # there, the tests that matter most would not have run.
+      #
+      # `?schema=public` has to come off the URL first. It is a Prisma parameter,
+      # not a libpq one, and psql rejects a URI query parameter it does not
+      # recognise outright (`invalid URI query parameter: "schema"`) rather than
+      # ignoring it. Same connection string, two dialects.
       - name: Verify the fixture
         run: |
-          COUNT=$(psql "$DATABASE_URL" -tAc 'SELECT count(*) FROM "User";')
+          COUNT=$(psql "${DATABASE_URL%%\?*}" -tAc 'SELECT count(*) FROM "User";')
           echo "seeded users: $COUNT"
           if [ "$COUNT" -lt 7 ]; then
             echo "::error::Expected at least 7 seeded users; found $COUNT. The integration tests would have skipped."
