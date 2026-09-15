@@ -7,6 +7,7 @@
  * and expected to live in memory only.
  */
 import type { FastifyPluginAsync } from 'fastify';
+import { isTest } from '../../config/env.js';
 import { parseBody } from '../../lib/validate.js';
 import { requirePrincipal } from '../../plugins/auth.plugin.js';
 import { unauthenticated } from '../../lib/errors.js';
@@ -15,6 +16,24 @@ import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './auth.
 import { changePassword, login, logout, refresh, register, toPublicUser } from './auth.service.js';
 import { prisma } from '../../db/client.js';
 import { notFound } from '../../lib/errors.js';
+
+/**
+ * Per-route rate limits.
+ *
+ * Disabled under `NODE_ENV=test` for exactly the reason the *global* limiter is
+ * (see the `rateLimit` registration in src/app.ts): a suite that exercises an
+ * endpoint several times would otherwise start failing on 429 rather than on the
+ * behaviour under test, and the failure would arrive as a function of how many
+ * tests happen to touch the route — which is the definition of a flaky suite.
+ *
+ * `global: !isTest` on the plugin only turns off the blanket limit; a route that
+ * sets `config.rateLimit` is still limited, so this helper is what actually
+ * takes the per-route ones out of the way.
+ *
+ * The production numbers are unchanged and live in the call sites below.
+ */
+const limit = (max: number, timeWindow: string): { rateLimit: false | { max: number; timeWindow: string } } =>
+  isTest ? { rateLimit: false } : { rateLimit: { max, timeWindow } };
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -29,38 +48,57 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
    * is 201 with a session already established, and the refresh cookie set, so
    * the client is signed in without a second round trip.
    */
-  app.post(
-    '/register',
-    { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } },
-    async (request, reply) => {
-      const input = parseBody(registerSchema, request.body);
+  app.post('/register', { config: limit(5, '1 hour') }, async (request, reply) => {
+    const input = parseBody(registerSchema, request.body);
 
-      const result = await register(input, {
-        userAgent: request.headers['user-agent'],
-        ip: request.ip,
-      });
+    const result = await register(input, {
+      userAgent: request.headers['user-agent'],
+      ip: request.ip,
+    });
 
-      setRefreshCookie(reply, result.refreshToken);
+    setRefreshCookie(reply, result.refreshToken);
 
-      return reply.status(201).send({
-        user: result.user,
-        accessToken: result.accessToken,
-        expiresIn: result.expiresIn,
-      });
-    },
-  );
+    return reply.status(201).send({
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+    });
+  });
 
   /**
    * Brute-force protection. Tighter than the global limit because this is the
    * one endpoint where guessing pays off.
    */
-  app.post(
-    '/login',
-    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
-    async (request, reply) => {
-      const { email, password } = parseBody(loginSchema, request.body);
+  app.post('/login', { config: limit(10, '1 minute') }, async (request, reply) => {
+    const { email, password } = parseBody(loginSchema, request.body);
 
-      const result = await login(email, password, {
+    const result = await login(email, password, {
+      userAgent: request.headers['user-agent'],
+      ip: request.ip,
+    });
+
+    setRefreshCookie(reply, result.refreshToken);
+
+    return reply.send({
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+    });
+  });
+
+  /**
+   * Exchanges the cookie for a new access token and a rotated refresh cookie.
+   * Rate-limited because a replay storm against this endpoint would otherwise
+   * trigger family revocations for legitimate users.
+   */
+  app.post('/refresh', { config: limit(30, '1 minute') }, async (request, reply) => {
+    const raw = readRefreshCookie(request.cookies);
+    if (!raw) {
+      throw unauthenticated('No session cookie present.');
+    }
+
+    try {
+      const result = await refresh(raw, {
         userAgent: request.headers['user-agent'],
         ip: request.ip,
       });
@@ -72,44 +110,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         accessToken: result.accessToken,
         expiresIn: result.expiresIn,
       });
-    },
-  );
-
-  /**
-   * Exchanges the cookie for a new access token and a rotated refresh cookie.
-   * Rate-limited because a replay storm against this endpoint would otherwise
-   * trigger family revocations for legitimate users.
-   */
-  app.post(
-    '/refresh',
-    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
-    async (request, reply) => {
-      const raw = readRefreshCookie(request.cookies);
-      if (!raw) {
-        throw unauthenticated('No session cookie present.');
-      }
-
-      try {
-        const result = await refresh(raw, {
-          userAgent: request.headers['user-agent'],
-          ip: request.ip,
-        });
-
-        setRefreshCookie(reply, result.refreshToken);
-
-        return reply.send({
-          user: result.user,
-          accessToken: result.accessToken,
-          expiresIn: result.expiresIn,
-        });
-      } catch (error) {
-        // Any refresh failure leaves the browser holding a cookie that will
-        // never work again; clearing it stops the client from retrying forever.
-        clearRefreshCookie(reply);
-        throw error;
-      }
-    },
-  );
+    } catch (error) {
+      // Any refresh failure leaves the browser holding a cookie that will
+      // never work again; clearing it stops the client from retrying forever.
+      clearRefreshCookie(reply);
+      throw error;
+    }
+  });
 
   app.post('/logout', async (request, reply) => {
     await logout(readRefreshCookie(request.cookies));
