@@ -15,6 +15,31 @@
  * inside both. The router is innermost because none of the three needs a
  * route — which also means a navigation never tears down the WebSocket.
  */
+/**
+ * Visitor analytics.
+ *
+ * Vercel Web Analytics rather than Google Analytics, and the reason is not
+ * preference:
+ *
+ *   - The script is served from `/_vercel/insights/script.js` — a **first-party**
+ *     path on this app's own origin. No third-party request, so no third-party
+ *     cookie, and ad-blockers do not silently zero the numbers.
+ *   - It sets no cookies and stores no identifier, which is what makes it usable
+ *     without a consent banner. GA4 would need one, and a consent banner on a
+ *     login page is a worse first impression than having no analytics.
+ *   - Page views only, aggregated. It answers "did anyone open this?" and cannot
+ *     answer "who" — which is the honest limit of what a portfolio deployment
+ *     needs to know about the people reviewing it.
+ *
+ * Renders nothing. Outside the router on purpose: it hooks history itself, so a
+ * navigation inside the SPA is still counted, and it must not be torn down and
+ * re-mounted by a route change.
+ *
+ * Inert unless Web Analytics is switched on for the project in the Vercel
+ * dashboard — the script 404s and the component fails quietly, so local `npm run
+ * dev` and any non-Vercel host are unaffected.
+ */
+import { Analytics } from '@vercel/analytics/react';
 import {
   Navigate,
   Outlet,
@@ -183,6 +208,7 @@ export const App = (): React.JSX.Element => (
     <SocketProvider>
       <NotificationProvider>
         <RouterProvider router={router} />
+        <Analytics />
       </NotificationProvider>
     </SocketProvider>
   </AuthProvider>
