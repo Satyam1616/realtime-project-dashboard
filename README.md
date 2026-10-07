@@ -777,8 +777,4 @@ What I would do differently: generate the client types from the Zod schemas inst
 hand-mirroring them in `web/src/types/api.ts`. It is the one place in the project where
 correctness rests on discipline rather than on the compiler.
 
----
 
-## Licence
-
-Written as a technical assessment for Velozity Global Solutions.
